@@ -4,16 +4,17 @@
 # Drop this file (rename if desired) into your Home Assistant `packages/` folder
 # and ensure `homeassistant: packages: !include_dir_named packages` is enabled.
 #
-# Zero / minimal user edits expected:
+# Minimal user edits expected:
 # - Adjust notification service if not `notify.mark`.
 # - Optionally tweak helper default values below.
-# - targeted triggers below are appropriate for standard integration name 'water monitor'.
+# - targeted triggers below are appropriate for standard integration name for droplet sensors
+#       'water monitor droplet'.
 #
 # This package auto-discovers Water Monitor leak detectors, valve + context,
 # and session metrics. It sends actionable notifications, supports snooze,
 # synthetic/test mode handling, valve reminders, high-usage alerts, and
 # upstream health degradation notices with detailed sensor status.
-# 
+#
 # New features:
 # - Individual notification controls for intelligent leak and high usage alerts
 # - Enhanced upstream health notifications with specific sensor details
@@ -33,13 +34,13 @@ input_boolean:
     icon: mdi:flask
     initial: false
 
-# Specific notification type controls    
+# Specific notification type controls
   water_monitor_intelligent_leak_notifications:
     name: Intelligent Leak Notifications
     icon: mdi:water-alert
     initial: true
   water_monitor_high_usage_notifications:
-    name: High Usage Notifications  
+    name: High Usage Notifications
     icon: mdi:water-pump
     initial: true
 
@@ -109,6 +110,7 @@ template:
 # Edit points (search for EDIT ME):
 #   1. valve_entity variable (if you have a shutoff valve)
 #   2. notify_service if not notify.mark
+#   3. targetted triggers
 # If you have multiple valves, add additional valve entity IDs to the
 # valve state trigger block.
 #############################################
@@ -120,14 +122,14 @@ automation:
     variables:
       # Auto-discover valve entity from leak detector attributes (no manual config needed)
       valve_entity: >
-        {% set leak_sensors = states.binary_sensor 
-           | selectattr('entity_id', 'match', '.*_(low_flow_leak|tank_refill_leak|intelligent_leak)$') 
+        {% set leak_sensors = states.binary_sensor
+           | selectattr('entity_id', 'match', '.*_(low_flow_leak|tank_refill_leak|intelligent_leak)$')
            | list %}
         {% for sensor in leak_sensors %}
           {% set valve_attr = sensor.attributes.get('auto_shutoff_valve_entity') %}
           {% if valve_attr %}{{ valve_attr }}{% break %}{% endif %}
         {% endfor %}
-      notify_service: notify.mark  # EDIT ME if different
+      notify_service: notify.mobile_app_sm_g970u1  # EDIT ME if different
       # NOTE: Home Assistant does NOT allow templating the trigger entity_id list.
       # That means we cannot define leak/upstream/volume entity lists here and
       # reference them in the triggers below via {{ variables }}. If you need to
@@ -164,8 +166,9 @@ automation:
         {{ trigger.to_state.state if trigger_is_state_change and trigger.to_state is not none else '' }}
       is_leak_entity: >
         {{ trigger_entity is match('binary_sensor\\..*_(low_flow_leak|tank_refill_leak|intelligent_leak)$') }}
+      #EDIT ME:
       is_upstream_entity: >
-        {{ trigger_entity is match('binary_sensor\\..*_upstream_health$') }}
+        {{ trigger_entity is match('binary_sensor\\..*_upstream_sensors_health$') }}
       is_last_session_entity: >
         {{ trigger_entity is match('sensor\\..*_last_session_volume$') }}
       leak_turning_on: >
@@ -218,34 +221,35 @@ automation:
         from: 'off'
         to: 'on'
         entity_id:
-          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
+          - binary_sensor.water_monitor_droplet_low_flow_leak          # EDIT ME; comment out if not created
+          - binary_sensor.water_monitor_droplet_tank_refill_leak       # EDIT ME; optional
+          - binary_sensor.water_monitor_droplet_intelligent_leak       # EDIT ME; optional / experimental
       - platform: state
         id: leak_off
         from: 'on'
         to: 'off'
         entity_id:
-          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
+          - binary_sensor.water_monitor_droplet_low_flow_leak          # EDIT ME; comment out if not created
+          - binary_sensor.water_monitor_droplet_tank_refill_leak       # EDIT ME; optional
+          - binary_sensor.water_monitor_droplet_intelligent_leak       # EDIT ME; optional / experimental
       - platform: state
         id: upstream
         entity_id:
-          - binary_sensor.water_monitor_upstream_health
+          - binary_sensor.water_monitor_droplet_upstream_sensors_health # EDIT ME;
   # (Removed obsolete state-based current_session_high trigger referencing missing entity)
       # High session trigger using template (fires once when threshold sustained 5s)
       - platform: template
         id: current_session_high
+        # EDIT ME:
         value_template: >-
-          {% set cur = state_attr('sensor.water_monitor_last_session_volume','current_session_volume') | float(0) %}
+          {% set cur = state_attr('sensor.water_monitor_droplet_last_session_volume','current_session_volume') | float(0) %}
           {% set threshold = states('input_number.water_monitor_large_session_volume') | float(25) %}
           {{ cur >= threshold }}
         for:
           seconds: 5
       - platform: state
         id: valve
-        entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
+        entity_id: switch.bsm_h20_valve  # # EDIT ME; dummy valve fallback; replace with your valve entity if set
       - platform: time_pattern
         id: tick
         minutes: "/1"
@@ -368,6 +372,8 @@ automation:
                   data:
                     tag: "{{ notif_tag }}"
                     actions: "{{ actions_list }}"
+                    ttl: 0
+                    priority: high
           - conditions: "{{ leak_turning_off }}"
             sequence:
               - condition: state
@@ -460,7 +466,7 @@ automation:
                 entity_id: input_boolean.water_monitor_high_usage_notifications
                 state: 'on'
               - variables:
-                  session_entity: sensor.water_monitor_last_session_volume
+                  session_entity: sensor.water_monitor_droplet_last_session_volume #EDIT ME
                   unit: >
                     {{ state_attr(session_entity,'volume_unit') or 'units' }}
                   cur_vol: "{{ state_attr(session_entity,'current_session_volume') | float(0) | round(2) }}"
@@ -475,6 +481,8 @@ automation:
                     Current session now at {{ cur_vol }} {{ unit }} over {{ cur_dur }}s (avg {{ cur_avg }} {{ unit }}/min). Threshold crossed.
                   data:
                     actions: "{{ high_usage_actions }}"
+                    ttl: 0
+                    priority: high
           - conditions: >
               {{ valve_closed_event and not leak_turning_on }}
             sequence:
@@ -486,6 +494,9 @@ automation:
                   title: Water Valve Closed
                   message: >
                     Valve {{ leak_valve_entity }} closed.
+                  data:
+                    ttl: 0
+                    priority: high
           - conditions: >
               {{ trigger.platform == 'time_pattern' and reminder_due and not synthetic_mode }}
             sequence:
@@ -506,9 +517,9 @@ automation:
                     {{ actions }}
               - action: "{{ notify_service }}"
                 data:
-                  title: Leak Persists (Valve Off)
+                  title: Leak Persists
                   message: >
-                    Leak still active. Valve isolated. Elapsed ~{{ elapsed_min }} min.
+                    Leak still active. Elapsed ~{{ elapsed_min }} min.
                   data:
                     tag: "{{ notif_tag }}"
                     actions: "{{ reminder_actions }}"
