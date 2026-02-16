@@ -39,6 +39,10 @@ input_boolean:
     name: Intelligent Leak Notifications
     icon: mdi:water-alert
     initial: true
+  water_monitor_upstream_sensors_health_notifications:
+    name: Upstream Sensors Health Notifications
+    icon: mdi:wifi-strength-off-outline
+    initial: true
   water_monitor_high_usage_notifications:
     name: High Usage Notifications
     icon: mdi:water-pump
@@ -414,6 +418,9 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
+              - condition: state
+                entity_id: input_boolean.water_monitor_upstream_sensors_health_notifications
+                state: 'on'
               - variables:
                   unavailable_sensors: "{{ trigger.to_state.attributes.get('unavailable_entities', []) }}"
                   unknown_sensors: "{{ trigger.to_state.attributes.get('unknown_entities', []) }}"
@@ -444,6 +451,9 @@ automation:
             sequence:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
+                state: 'on'
+              - condition: state
+                entity_id: input_boolean.water_monitor_upstream_sensors_health_notifications
                 state: 'on'
               - variables:
                   name_mapping: "{{ trigger.to_state.attributes.get('name_to_entity', {}) }}"
