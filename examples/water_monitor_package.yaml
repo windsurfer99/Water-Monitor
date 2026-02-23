@@ -28,25 +28,20 @@ input_boolean:
   water_monitor_notifications_enabled:
     name: Water Monitor Notifications Enabled
     icon: mdi:bell
-    initial: true
   water_monitor_test_mode:
     name: Water Monitor Test Mode
     icon: mdi:flask
-    initial: false
 
 # Specific notification type controls
   water_monitor_intelligent_leak_notifications:
     name: Intelligent Leak Notifications
     icon: mdi:water-alert
-    initial: true
   water_monitor_upstream_sensors_health_notifications:
     name: Upstream Sensors Health Notifications
     icon: mdi:wifi-strength-off-outline
-    initial: true
   water_monitor_high_usage_notifications:
     name: High Usage Notifications
     icon: mdi:water-pump
-    initial: true
 
 input_number:
   water_monitor_large_session_volume:
@@ -55,21 +50,18 @@ input_number:
     max: 1000
     step: 1
     mode: box
-    initial: 25
   water_monitor_valve_reminder_interval:
     name: Water Monitor Valve Reminder Interval (min)
     min: 1
     max: 180
     step: 1
     mode: box
-    initial: 10
   water_monitor_snooze_minutes:
     name: Water Monitor Snooze Minutes
     min: 5
     max: 240
     step: 5
     mode: box
-    initial: 30
 
 input_datetime:
   water_monitor_snooze_until:
@@ -160,7 +152,7 @@ automation:
         {% set dt = states('input_datetime.water_monitor_last_leak_reminder') %}
         {% if dt in ('unknown','unavailable','') %}0{% else %}{{ as_timestamp(strptime(dt, '%Y-%m-%d %H:%M:%S')) }}{% endif %}
       any_leak_sensor_on: "{{ is_state('sensor.water_monitor_any_leak_active','on') }}"
-      synthetic_mode: "{{ is_state('sensor.water_monitor_synthetic_active','on') }}"
+      synthetic_mode: "{{ not is_state('number.water_monitor_droplet_synthetic_flow_gpm','0.0') }}"
       trigger_is_state_change: "{{ trigger.platform == 'state' }}"
       trigger_entity: >
         {{ trigger.entity_id if trigger_is_state_change else '' }}
@@ -170,7 +162,6 @@ automation:
         {{ trigger.to_state.state if trigger_is_state_change and trigger.to_state is not none else '' }}
       is_leak_entity: >
         {{ trigger_entity is match('binary_sensor\\..*_(low_flow_leak|tank_refill_leak|intelligent_leak)$') }}
-      #EDIT ME:
       is_upstream_entity: >
         {{ trigger_entity is match('binary_sensor\\..*_upstream_sensors_health$') }}
       is_last_session_entity: >
@@ -378,6 +369,10 @@ automation:
                     actions: "{{ actions_list }}"
                     ttl: 0
                     priority: high
+              - service: input_datetime.set_datetime
+                data:
+                  entity_id: input_datetime.water_monitor_last_leak_reminder
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
           - conditions: "{{ leak_turning_off }}"
             sequence:
               - condition: state
@@ -408,11 +403,11 @@ automation:
               - service: input_datetime.set_datetime
                 data:
                   entity_id: input_datetime.water_monitor_last_leak_reminder
-                  datetime: "1970-01-01 00:00:00"
+                  datetime: "1970-01-01 00:00:00+00:00"
               - service: input_datetime.set_datetime
                 data:
                   entity_id: input_datetime.water_monitor_snooze_until
-                  datetime: "1970-01-01 00:00:00"
+                  datetime: "1970-01-01 00:00:00+00:00"
           - conditions: "{{ upstream_down }}"
             sequence:
               - condition: state
@@ -515,6 +510,11 @@ automation:
                 state: 'on'
               - variables:
                   notif_tag: water_monitor_reminder
+                  leak_info: >
+                    Leak type: {% if states('sensor.water_monitor_any_leak_active') in ['on']%} {% set active_leaks = state_attr('sensor.water_monitor_any_leak_active','active_leaks') %}
+                      {% for sensor in active_leaks %} {% set leak_type_attr = state_attr(sensor,'leak_type') %} {% if leak_type_attr %}{{ leak_type_attr }}. {% endif %} {% endfor %}
+                    {% endif %}             
+                    {% if valve_state_entity %}{% if states(valve_state_entity) in ['off','closed'] %} {{' Valve is CLOSED '}}{% else %} {{' Valve is OPEN '}}{% endif %}{% endif %}
                   elapsed_min: >
                     {% set base = last_reminder_ts if last_reminder_ts > 0 else ( now().timestamp() - (reminder_interval_min|int)*60 ) %}
                     {{ ((now().timestamp() - base)/60) | round(1) }}
@@ -529,7 +529,7 @@ automation:
                 data:
                   title: Leak Persists
                   message: >
-                    Leak still active. Elapsed ~{{ elapsed_min }} min.
+                    Leak still active. {{ leak_info }}. Elapsed ~{{ elapsed_min }} min.
                   data:
                     tag: "{{ notif_tag }}"
                     actions: "{{ reminder_actions }}"
